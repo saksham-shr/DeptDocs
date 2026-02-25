@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,12 +8,13 @@ import {
 } from 'lucide-react';
 import { pdf } from '@react-pdf/renderer';
 
-// IMPORT THE NEW PDF COMPONENT WE CREATED
+// --- UPDATED IMPORTS FOR ROOT COMPONENTS ---
 import LivePreview from './LivePreview';
-// IMPORT THE PDF TEMPLATE FOR DOWNLOADING
 import { ReportPDF } from './ReportPDF';
-// IMPORT THE NEW REUSABLE MANAGE ACCESS MODAL
 import ManageAccessModal from './ManageAccessModal';
+import NotificationBell from '@/components/NotificationBell';
+import { logActivity } from '@/lib/logger';
+import { createClient } from '@/utils/supabase/client';
 
 interface Props {
     children: React.ReactNode;
@@ -23,40 +24,59 @@ interface Props {
     previewData: any;
     onSaveDraft?: (data: any) => void;
     onMarkCompleted?: (data: any) => void;
-    reportId?: string | null; // <--- ADDED THIS LINE
+    reportId?: string | null;
+
+    // NEW PROPS FOR TOGGLE TABS (File | Insert)
+    viewMode?: 'editor' | 'assets';
+    onViewModeChange?: (mode: 'editor' | 'assets') => void;
 }
 
-export default function ReportLayout({ children, activeSection, onSectionChange, sections, previewData, onSaveDraft, onMarkCompleted, reportId }: Props) { // <--- DESTRUCTURED IT HERE
+export default function ReportLayout({
+    children,
+    activeSection,
+    onSectionChange,
+    sections,
+    previewData,
+    onSaveDraft,
+    onMarkCompleted,
+    reportId,
+    viewMode = 'editor',
+    onViewModeChange
+}: Props) {
     const router = useRouter();
+    const supabase = createClient();
 
-    // Modal & Menu States
     const [showCollabModal, setShowCollabModal] = useState(false);
-    const [showWarningModal, setShowWarningModal] = useState(false);
     const [showDownloadMenu, setShowDownloadMenu] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
-
-    // Profile Dropdown State
     const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [user, setUser] = useState<any>(null);
 
-    // 1. Validation Logic
-    const isReportComplete = () => {
-        const requiredFields = [previewData.activityTitle, previewData.activityType, previewData.date];
-        return requiredFields.every(field => field && field.toString().trim() !== "");
-    };
+    // Fetch user on mount for logging
+    useEffect(() => {
+        const getUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
+        };
+        getUser();
+    }, []);
 
-    // 2. Download Handlers
-    const handleDownloadClick = () => {
-        if (!isReportComplete()) {
-            setShowWarningModal(true);
-            setShowDownloadMenu(false);
-        } else {
-            setShowDownloadMenu(!showDownloadMenu);
+    // Action Handlers with Logging
+    const handleActionWithLog = async (action: 'SAVE' | 'COMPLETE') => {
+        if (!user) return;
+        const title = previewData.activityTitle?.trim() || "Untitled Activity Report";
+
+        try {
+            if (action === 'SAVE' && onSaveDraft) {
+                await onSaveDraft(previewData);
+                await logActivity('REPORT_SAVED', `Saved draft: ${title}`, reportId || undefined);
+            } else if (action === 'COMPLETE' && onMarkCompleted) {
+                await onMarkCompleted(previewData);
+                await logActivity('REPORT_COMPLETED', `Report finalized: ${title}`, reportId || undefined);
+            }
+        } catch (err) {
+            console.error("Action failed:", err);
         }
-    };
-
-    const handleProceedToDownload = () => {
-        setShowWarningModal(false);
-        setShowDownloadMenu(true);
     };
 
     const downloadAsPDF = async () => {
@@ -64,7 +84,6 @@ export default function ReportLayout({ children, activeSection, onSectionChange,
         try {
             const blob = await pdf(<ReportPDF data={previewData} />).toBlob();
             const url = URL.createObjectURL(blob);
-
             const link = document.createElement('a');
             link.href = url;
             link.download = `${previewData.activityTitle ? previewData.activityTitle.replace(/\s+/g, '_') : 'Activity'}_Report.pdf`;
@@ -74,16 +93,10 @@ export default function ReportLayout({ children, activeSection, onSectionChange,
             URL.revokeObjectURL(url);
         } catch (error) {
             console.error("Failed to generate PDF:", error);
-            alert("Error generating PDF. Please check your data.");
         } finally {
             setIsDownloading(false);
             setShowDownloadMenu(false);
         }
-    };
-
-    const downloadAsDocs = () => {
-        alert("DOCX generation feature coming soon!");
-        setShowDownloadMenu(false);
     };
 
     return (
@@ -91,30 +104,22 @@ export default function ReportLayout({ children, activeSection, onSectionChange,
 
             {/* COLUMN 1: UTILITY BAR */}
             <aside className="w-16 bg-[#0B2244] flex flex-col items-center py-6 shrink-0 space-y-8 border-r border-white/5 relative z-50">
-                <button className="text-white/60 hover:text-white transition-colors" title="Menu"><Menu size={24} /></button>
-
-                {/* Routing Buttons */}
+                <button className="text-white/60 hover:text-white transition-colors"><Menu size={24} /></button>
                 <button onClick={() => router.push('/home')} className="text-white/60 hover:text-white transition-colors" title="Home"><Home size={24} /></button>
-                <button onClick={() => router.push('/home/open')} className="text-white/60 hover:text-white transition-colors" title="Completed Reports"><FolderOpen size={24} /></button>
+                <button onClick={() => router.push('/home/open')} className="text-white/60 hover:text-white transition-colors" title="Reports"><FolderOpen size={24} /></button>
 
-                {/* Action Buttons */}
-                <button onClick={() => onSaveDraft && onSaveDraft(previewData)} className="text-white/60 hover:text-white transition-colors" title="Save Draft"><Save size={24} /></button>
-                <button onClick={() => onMarkCompleted && onMarkCompleted(previewData)} className="text-white/60 hover:text-green-400 transition-colors" title="Mark as Completed"><CheckCircle size={24} /></button>
-                <button onClick={() => setShowCollabModal(true)} className="text-white/60 hover:text-white transition-colors" title="Add Collaborator"><UserPlus size={24} /></button>
+                {/* Logged Action Buttons */}
+                <button onClick={() => handleActionWithLog('SAVE')} className="text-white/60 hover:text-white transition-colors" title="Save Draft"><Save size={24} /></button>
+                <button onClick={() => handleActionWithLog('COMPLETE')} className="text-white/60 hover:text-green-400 transition-colors" title="Mark as Completed"><CheckCircle size={24} /></button>
+                <button onClick={() => setShowCollabModal(true)} className="text-white/60 hover:text-white transition-colors" title="Collab"><UserPlus size={24} /></button>
 
-                {/* Download Menu */}
                 <div className="relative flex flex-col items-center">
-                    <button onClick={handleDownloadClick} className="text-white/60 hover:text-white transition-colors" title="Download"><Download size={24} /></button>
-
+                    <button onClick={() => setShowDownloadMenu(!showDownloadMenu)} className="text-white/60 hover:text-white transition-colors" title="Download"><Download size={24} /></button>
                     {showDownloadMenu && (
                         <div className="absolute left-14 top-0 bg-white shadow-xl rounded-xl py-2 w-48 border border-gray-100 animate-in fade-in zoom-in-95">
                             <button onClick={downloadAsPDF} disabled={isDownloading} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-3">
                                 <FileText size={16} className="text-red-500" />
                                 <span className="font-medium">{isDownloading ? "Generating..." : "Download PDF"}</span>
-                            </button>
-                            <button onClick={downloadAsDocs} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-3 border-t border-gray-50">
-                                <FileWord size={16} className="text-blue-600" />
-                                <span className="font-medium">Download Word</span>
                             </button>
                         </div>
                     )}
@@ -140,47 +145,41 @@ export default function ReportLayout({ children, activeSection, onSectionChange,
                 </nav>
             </aside>
 
-            {/* RIGHT AREA: HEADER + FORM + PREVIEW */}
+            {/* RIGHT AREA: HEADER + CONTENT */}
             <div className="flex-1 flex flex-col overflow-hidden">
                 <header className="h-14 bg-white border-b flex items-center justify-between px-8 shrink-0 relative z-40">
                     <h2 className="text-sm font-bold text-gray-800 uppercase tracking-tight">
                         {previewData.activityTitle || "Untitled Activity Report"}
                     </h2>
                     <div className="flex items-center space-x-4">
-                        <button className="flex items-center space-x-2 bg-gray-100 px-4 py-1.5 rounded-full text-[10px] font-bold text-gray-500 hover:bg-gray-200 transition-colors">
-                            <span>LIVE PREVIEW</span>
-                            <Eye size={14} />
+                        <button className="flex items-center space-x-2 bg-gray-100 px-4 py-1.5 rounded-full text-[10px] font-bold text-gray-500 hover:bg-gray-200">
+                            <span>LIVE PREVIEW</span> <Eye size={14} />
                         </button>
 
-                        {/* Clickable Profile Dropdown */}
+                        <NotificationBell />
+
                         <div className="relative">
-                            <button
-                                onClick={() => setIsProfileOpen(!isProfileOpen)}
-                                className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center border border-gray-300 hover:ring-2 hover:ring-gray-300 transition-all focus:outline-none"
-                            >
+                            <button onClick={() => setIsProfileOpen(!isProfileOpen)} className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center border border-gray-300">
                                 <UserCircle size={20} className="text-gray-500" />
                             </button>
 
+                            {/* --- RESTORED PROFILE DROPDOWN --- */}
                             {isProfileOpen && (
-                                <div className="absolute right-0 mt-3 w-48 bg-white rounded-xl shadow-lg border border-gray-100 py-2 animate-in fade-in zoom-in-95 z-50">
-                                    <button onClick={() => { setIsProfileOpen(false); router.push('/setting'); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center space-x-3 text-sm font-medium text-gray-700">
-                                        <User size={16} className="text-gray-400" /> <span>Profile</span>
+                                <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 py-2 z-50 overflow-hidden animate-in fade-in zoom-in-95">
+                                    <button onClick={() => router.push('/settings')} className="w-full text-left px-5 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
+                                        <User size={18} className="text-gray-400" /> Profile
                                     </button>
-                                    <button onClick={() => { setIsProfileOpen(false); router.push('/setting'); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center space-x-3 text-sm font-medium text-gray-700">
-                                        <FileText size={16} className="text-gray-400" /> <span>Requests</span>
+                                    <button onClick={() => router.push('/settings')} className="w-full text-left px-5 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
+                                        <SettingsIcon size={18} className="text-gray-400" /> Settings
                                     </button>
-                                    <button onClick={() => { setIsProfileOpen(false); router.push('/setting'); }} className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center space-x-3 text-sm font-medium text-gray-700">
-                                        <SettingsIcon size={16} className="text-gray-400" /> <span>Settings</span>
+                                    <button onClick={() => router.push('/settings')} className="w-full text-left px-5 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
+                                        <UserPlus size={18} className="text-gray-400" /> Requests
                                     </button>
-                                    <div className="border-t border-gray-100 my-1"></div>
-                                    <button
-                                        onClick={() => {
-                                            setIsProfileOpen(false);
-                                            router.push('/'); // Navigate to Login/Home
-                                        }}
-                                        className="w-full text-left px-4 py-2.5 hover:bg-red-50 flex items-center space-x-3 text-sm font-medium text-red-600 transition-colors"
-                                    >
-                                        <LogOut size={16} /> <span>Log Out</span>
+
+                                    <div className="h-px bg-gray-100 my-1 mx-2"></div>
+
+                                    <button onClick={async () => { await supabase.auth.signOut(); router.push('/'); }} className="w-full text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors">
+                                        <LogOut size={18} /> Log Out
                                     </button>
                                 </div>
                             )}
@@ -189,18 +188,38 @@ export default function ReportLayout({ children, activeSection, onSectionChange,
                 </header>
 
                 <main className="flex-1 p-6 flex space-x-6 overflow-hidden">
-                    <div className="w-[450px] bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col overflow-hidden shrink-0">
-                        <div className="flex border-b shrink-0">
-                            <button className="px-8 py-3 bg-[#3b5998] text-white font-bold text-[10px] uppercase tracking-wider">Form Editor</button>
-                            <button className="px-8 py-3 text-gray-400 font-bold text-[10px] uppercase tracking-wider hover:bg-gray-50">Settings</button>
+
+                    {/* LEFT PANE: FORM & ASSET EDITOR */}
+                    <div className="w-[450px] bg-white rounded-3xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
+
+                        {/* --- CORRECTED TOGGLE HEADER --- */}
+                        {onViewModeChange && (
+                            <div className="flex items-center gap-2 p-4 border-b border-gray-100 bg-gray-50/50 shrink-0">
+                                {/* FILE -> Opens Editor */}
+                                <button
+                                    onClick={() => onViewModeChange('editor')}
+                                    className={`px-6 py-2 rounded-full font-bold text-xs transition-colors ${viewMode === 'editor' ? 'bg-[#3b5998] text-white shadow-sm' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                                >
+                                    File
+                                </button>
+                                {/* INSERT -> Opens Assets */}
+                                <button
+                                    onClick={() => onViewModeChange('assets')}
+                                    className={`px-6 py-2 rounded-full font-bold text-xs transition-colors ${viewMode === 'assets' ? 'bg-[#3b5998] text-white shadow-sm' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                                >
+                                    Insert
+                                </button>
+                            </div>
+                        )}
+
+                        {/* CONTENT AREA */}
+                        <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">
+                            {children}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">{children}</div>
                     </div>
 
-                    <div className="flex-1 bg-white rounded-3xl shadow-sm border border-gray-100 p-6 flex flex-col overflow-hidden">
-                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4 shrink-0">
-                            Real-Time PDF Preview
-                        </span>
+                    {/* RIGHT PANE: LIVE PREVIEW */}
+                    <div className="flex-1 bg-white rounded-3xl shadow-sm border border-gray-100 p-6 flex flex-col">
                         <div className="flex-1 overflow-hidden rounded-xl border border-gray-200">
                             <LivePreview data={previewData} />
                         </div>
@@ -208,41 +227,7 @@ export default function ReportLayout({ children, activeSection, onSectionChange,
                 </main>
             </div>
 
-            {/* --- MODALS --- */}
-            <ManageAccessModal
-                isOpen={showCollabModal}
-                onClose={() => setShowCollabModal(false)}
-                reportId={reportId} // <--- AND PASSED IT HERE!
-            />
-
-            {showWarningModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] backdrop-blur-sm transition-all">
-                    <div className="bg-white rounded-3xl p-8 w-[420px] shadow-2xl text-center animate-in fade-in zoom-in-95">
-                        <div className="w-20 h-20 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <AlertCircle size={40} className="text-orange-500" />
-                        </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-3">Report Incomplete</h3>
-                        <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-                            Some essential fields are still blank. Do you want to return to the editor, or proceed to download anyway?
-                        </p>
-
-                        <div className="flex space-x-3">
-                            <button
-                                onClick={() => setShowWarningModal(false)}
-                                className="flex-1 bg-gray-100 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-200 transition-colors shadow-sm active:scale-95"
-                            >
-                                Return
-                            </button>
-                            <button
-                                onClick={handleProceedToDownload}
-                                className="flex-1 bg-orange-500 text-white font-bold py-3 rounded-xl hover:bg-orange-600 transition-colors shadow-md active:scale-95"
-                            >
-                                Proceed
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ManageAccessModal isOpen={showCollabModal} onClose={() => setShowCollabModal(false)} reportId={reportId} />
         </div>
     );
 }

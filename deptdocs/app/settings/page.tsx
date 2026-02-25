@@ -19,7 +19,6 @@ const ProfileTab = ({ profile, setProfile, onSave, isSaving, onUploadSignature, 
         <div className="animate-in fade-in duration-300">
             <div className="flex items-start space-x-6 mb-8">
                 <div className="w-24 h-24 bg-gray-900 rounded-full flex items-center justify-center text-white shrink-0 overflow-hidden relative">
-                    {/* Placeholder for future Profile Picture upload */}
                     <UserCircle size={64} strokeWidth={1} />
                 </div>
                 <div className="flex flex-col pt-2">
@@ -83,7 +82,6 @@ const ProfileTab = ({ profile, setProfile, onSave, isSaving, onUploadSignature, 
                         />
                     </div>
 
-                    {/* Digital Signature Section */}
                     <div className="space-y-2 col-span-2">
                         <div className="flex justify-between items-center">
                             <label className="text-sm font-bold text-gray-700">Digital Signature</label>
@@ -132,34 +130,50 @@ const ProfileTab = ({ profile, setProfile, onSave, isSaving, onUploadSignature, 
     );
 };
 
-// ... (RequestsTab and SettingsTab remain exactly as they were in your previous code)
-const RequestsTab = () => (
-    <div className="animate-in fade-in duration-300">
-        <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm">
-            <div className="flex justify-between items-start">
-                <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold shrink-0">
-                        <UserCircle size={32} />
+// --- REAL REQUESTS TAB UI ---
+const RequestsTab = ({ requests, onAccept, onDismiss }: any) => (
+    <div className="animate-in fade-in duration-300 space-y-4">
+        {requests.length === 0 ? (
+            <div className="text-center py-20 text-gray-400">
+                <FileText size={48} className="mx-auto mb-4 opacity-20" />
+                <p>No pending collaboration requests.</p>
+            </div>
+        ) : (
+            requests.map((req: any) => (
+                <div key={req.id} className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex justify-between items-start">
+                        <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-[#3b5998] font-bold shrink-0">
+                                <UserCircle size={32} />
+                            </div>
+                            <div>
+                                {/* Extracting from the joined profiles table (report owner) */}
+                                <h3 className="text-lg font-bold text-gray-900">{req.reports?.profiles?.full_name || 'Unknown User'}</h3>
+                                <p className="text-sm text-gray-500">{req.reports?.profiles?.email || 'Unknown Email'}</p>
+                            </div>
+                        </div>
+                        <div className="flex space-x-3">
+                            <button
+                                onClick={() => onAccept(req.id)}
+                                className="bg-[#3b5998] hover:bg-[#2d4373] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center space-x-2 transition-colors"
+                            >
+                                <Check size={16} /><span>Accept</span>
+                            </button>
+                            <button
+                                onClick={() => onDismiss(req.id)}
+                                className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+                            >
+                                Dismiss
+                            </button>
+                        </div>
                     </div>
-                    <div>
-                        <h3 className="text-lg font-bold text-gray-900">Neil Shah</h3>
-                        <p className="text-sm text-gray-500">neil.shah@email.com</p>
+                    <div className="mt-6 pt-6 border-t border-gray-100">
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">Invited you to collaborate on:</p>
+                        <h4 className="text-[#3b5998] font-bold text-lg">{req.reports?.title || 'Untitled Report'}</h4>
                     </div>
                 </div>
-                <div className="flex space-x-3">
-                    <button className="bg-[#3b5998] hover:bg-[#2d4373] text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center space-x-2 transition-colors">
-                        <Check size={16} /><span>Accept</span>
-                    </button>
-                    <button className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
-                        Dismiss
-                    </button>
-                </div>
-            </div>
-            <div className="mt-6 pt-6 border-t border-gray-100">
-                <h4 className="text-[#3b5998] font-bold text-lg">Budget Report</h4>
-                <p className="text-sm text-gray-400 font-medium mt-1">1 of 1 Request</p>
-            </div>
-        </div>
+            ))
+        )}
     </div>
 );
 
@@ -225,39 +239,96 @@ export default function ProfileDashboard() {
 
     // Data State
     const [profile, setProfile] = useState({ id: '', full_name: '', designation: '', department: '', email: '', signature_url: '' });
+    const [requests, setRequests] = useState<any[]>([]); // New state for holding requests
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
 
     const tabs = ['Profile', 'Requests', 'Settings'];
 
     useEffect(() => {
-        loadProfile();
+        loadData();
     }, []);
 
-    // 1. Fetch existing profile details
-    const loadProfile = async () => {
+    // 1. Fetch Profile and Requests
+    const loadData = async () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-            const { data, error } = await supabase
+            // Load Profile
+            const { data: profData } = await supabase
                 .from('profiles')
                 .select('*')
                 .eq('id', user.id)
                 .single();
 
-            if (data) {
-                setProfile(data);
+            if (profData) setProfile(profData);
+
+            // Load Pending Requests (Join with reports and the owner's profile)
+            const { data: reqData, error: reqError } = await supabase
+                .from('collaborators')
+                .select(`
+                    id,
+                    status,
+                    reports (
+                        title,
+                        profiles (
+                            full_name,
+                            email
+                        )
+                    )
+                `)
+                .eq('user_id', user.id)
+                .eq('status', 'pending');
+
+            if (!reqError && reqData) {
+                setRequests(reqData);
             }
         }
     };
 
-    // 2. Handle Signature Image Upload
+    // 2. Accept Request Logic
+    const handleAcceptRequest = async (collabId: string) => {
+        try {
+            const { error } = await supabase
+                .from('collaborators')
+                .update({ status: 'accepted' })
+                .eq('id', collabId);
+
+            if (error) throw error;
+
+            // Remove from UI
+            setRequests(prev => prev.filter(r => r.id !== collabId));
+            alert("Invitation accepted! You can now access this report.");
+        } catch (error) {
+            console.error("Accept error:", error);
+            alert("Failed to accept request.");
+        }
+    };
+
+    // 3. Dismiss Request Logic
+    const handleDismissRequest = async (collabId: string) => {
+        try {
+            const { error } = await supabase
+                .from('collaborators')
+                .update({ status: 'declined' })
+                .eq('id', collabId);
+
+            if (error) throw error;
+
+            // Remove from UI
+            setRequests(prev => prev.filter(r => r.id !== collabId));
+        } catch (error) {
+            console.error("Dismiss error:", error);
+            alert("Failed to dismiss request.");
+        }
+    };
+
+    // 4. Handle Signature Image Upload (Unchanged)
     const handleUploadSignature = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !profile.id) return;
 
         setIsUploading(true);
         try {
-            // Upload to Supabase Storage ('signatures' bucket)
             const fileExt = file.name.split('.').pop();
             const filePath = `${profile.id}-${Math.random()}.${fileExt}`;
 
@@ -267,12 +338,10 @@ export default function ProfileDashboard() {
 
             if (uploadError) throw uploadError;
 
-            // Get Public URL
             const { data: { publicUrl } } = supabase.storage
                 .from('signatures')
                 .getPublicUrl(filePath);
 
-            // Update local state and save directly to DB
             setProfile(prev => ({ ...prev, signature_url: publicUrl }));
 
             await supabase
@@ -290,7 +359,7 @@ export default function ProfileDashboard() {
         }
     };
 
-    // 3. Save Text Changes
+    // 5. Save Text Changes (Unchanged)
     const handleSaveProfile = async () => {
         setIsSaving(true);
         try {
@@ -381,7 +450,13 @@ export default function ProfileDashboard() {
                             isUploading={isUploading}
                         />
                     )}
-                    {activeTab === 'Requests' && <RequestsTab />}
+                    {activeTab === 'Requests' && (
+                        <RequestsTab
+                            requests={requests}
+                            onAccept={handleAcceptRequest}
+                            onDismiss={handleDismissRequest}
+                        />
+                    )}
                     {activeTab === 'Settings' && <SettingsTab onOpenAccessModal={() => setIsAccessModalOpen(true)} router={router} />}
                 </div>
             </main>

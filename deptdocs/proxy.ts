@@ -1,7 +1,8 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export default async function proxy(request: NextRequest) {
+// Changed function name from 'middleware' to 'proxy'
+export async function proxy(request: NextRequest) {
     let response = NextResponse.next({
         request: {
             headers: request.headers,
@@ -19,14 +20,18 @@ export default async function proxy(request: NextRequest) {
                 set(name: string, value: string, options: CookieOptions) {
                     request.cookies.set({ name, value, ...options })
                     response = NextResponse.next({
-                        request: { headers: request.headers },
+                        request: {
+                            headers: request.headers,
+                        },
                     })
                     response.cookies.set({ name, value, ...options })
                 },
                 remove(name: string, options: CookieOptions) {
                     request.cookies.set({ name, value: '', ...options })
                     response = NextResponse.next({
-                        request: { headers: request.headers },
+                        request: {
+                            headers: request.headers,
+                        },
                     })
                     response.cookies.set({ name, value: '', ...options })
                 },
@@ -35,32 +40,34 @@ export default async function proxy(request: NextRequest) {
     )
 
     const { data: { user } } = await supabase.auth.getUser()
-    const pathname = request.nextUrl.pathname
+    const url = request.nextUrl.clone()
 
-    // 1. Protect routes if NOT logged in
-    if (!user && (pathname.startsWith('/home') || pathname.startsWith('/onboarding'))) {
-        return NextResponse.redirect(new URL('/login', request.url))
+    // 1. Auth Protection
+    if (!user && (url.pathname.startsWith('/home') || url.pathname.startsWith('/admin'))) {
+        url.pathname = '/login'
+        return NextResponse.redirect(url)
     }
 
-    // 2. Traffic Control for LOGGED IN users
-    if (user) {
-        // Check if they have finished onboarding by looking for their full name
+    // 2. Onboarding Gate
+    if (user && !url.pathname.startsWith('/onboarding') && !url.pathname.startsWith('/login')) {
         const { data: profile } = await supabase
             .from('profiles')
-            .select('full_name')
+            .select('full_name, signature_url')
             .eq('id', user.id)
             .single()
 
-        const hasCompletedOnboarding = profile && profile.full_name && profile.full_name.trim() !== ''
-
-        // If they haven't onboarded, force them to the onboarding page
-        if (!hasCompletedOnboarding && (pathname.startsWith('/home') || pathname === '/' || pathname === '/login')) {
-            return NextResponse.redirect(new URL('/onboarding', request.url))
+        if (!profile?.full_name || !profile?.signature_url) {
+            url.pathname = '/onboarding'
+            return NextResponse.redirect(url)
         }
+    }
 
-        // If they HAVE onboarded, keep them away from onboarding, login, and root
-        if (hasCompletedOnboarding && (pathname.startsWith('/onboarding') || pathname === '/' || pathname === '/login')) {
-            return NextResponse.redirect(new URL('/home', request.url))
+    // 3. Admin Security Gate (Saksham's Email)
+    if (url.pathname.startsWith('/admin')) {
+        const ADMIN_EMAIL = 'sakshamsharma614@gmail.com'
+        if (user?.email !== ADMIN_EMAIL) {
+            url.pathname = '/home'
+            return NextResponse.redirect(url)
         }
     }
 
@@ -68,5 +75,5 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+    matcher: ['/home/:path*', '/admin/:path*', '/onboarding/:path*'],
 }

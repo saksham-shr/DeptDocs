@@ -46,7 +46,7 @@ const styles = StyleSheet.create({
     centeredTitle: { fontSize: 16, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 },
     bodyText: { fontSize: 12, textAlign: 'justify', marginBottom: 10, lineHeight: 1.4 },
 
-    // Footer formatting (Fixed TypeScript error ts(1117) by removing duplicate right property)
+    // Footer formatting
     footer: { position: 'absolute', bottom: '15mm', fontSize: 10, textAlign: 'center', left: 0, right: 0 }
 });
 
@@ -94,6 +94,19 @@ export const ReportPDF = ({ data }: { data: any }) => {
     const hasData = (val: any) => val && val.toString().trim() !== "" && val !== "—";
     const hasArrayData = (arr: any[]) => arr && Array.isArray(arr) && arr.length > 0;
 
+    // --- 🐛 THE DATE & TIME FIX ---
+    // Safely fallback to data.date if startDate doesn't exist yet
+    const actualStartDate = data.startDate || data.date;
+    const dateDisplay = (actualStartDate && data.endDate && actualStartDate !== data.endDate)
+        ? `${actualStartDate} to ${data.endDate}`
+        : actualStartDate || "—";
+
+    const actualStartTime = data.startTime || data.time;
+    const timeDisplay = (actualStartTime && data.endTime)
+        ? `${actualStartTime} to ${data.endTime}`
+        : actualStartTime || "—";
+    // ------------------------------
+
     const renderAttachmentSection = (files: any[], title: string, textData?: string) => {
         if (!hasArrayData(files) && !hasData(textData)) return null;
         return (
@@ -131,8 +144,10 @@ export const ReportPDF = ({ data }: { data: any }) => {
                         <TableRow label="Sub Category" value={data.subCategory} />
                         <TableRow label="Venue" value={data.venue} />
                         <TableRow label="Collaboration/Sponsor" value={data.collaboration} />
-                        <TableRow label="Date/s" value={data.date} />
-                        <TableRow label="Time" value={data.time} isLast={true} />
+
+                        {/* 👈 USING THE NEW FIXED VARIABLES HERE */}
+                        <TableRow label="Date/s" value={dateDisplay} />
+                        <TableRow label="Time" value={timeDisplay} isLast={true} />
                     </View>
                 </View>
 
@@ -153,7 +168,7 @@ export const ReportPDF = ({ data }: { data: any }) => {
                 )}
 
                 {/* 3. PARTICIPANTS PROFILE */}
-                {hasArrayData(data.participantsProfile) && (
+                {hasArrayData(data.participantProfiles || data.participantsProfile) && (
                     <View style={styles.section} wrap={false}>
                         <Text style={styles.sectionTitle}>Participants profile</Text>
                         <View style={styles.table}>
@@ -161,8 +176,8 @@ export const ReportPDF = ({ data }: { data: any }) => {
                                 <Text style={[styles.halfLabelCell, { width: '50%' }]}>Type of Participants</Text>
                                 <Text style={[styles.halfLabelCell, { width: '50%', borderRight: 'none' }]}>No. of Participants</Text>
                             </View>
-                            {data.participantsProfile.map((pt: any, idx: number) => (
-                                <View key={idx} style={idx === data.participantsProfile.length - 1 ? styles.lastRow : styles.row} wrap={false}>
+                            {(data.participantProfiles || data.participantsProfile).map((pt: any, idx: number) => (
+                                <View key={idx} style={idx === (data.participantProfiles || data.participantsProfile).length - 1 ? styles.lastRow : styles.row} wrap={false}>
                                     <Text style={[styles.halfValueCell, { width: '50%', fontWeight: 'normal' }]}>{pt.type}</Text>
                                     <Text style={[styles.lastHalfValueCell, { width: '50%' }]}>{pt.count}</Text>
                                 </View>
@@ -178,7 +193,7 @@ export const ReportPDF = ({ data }: { data: any }) => {
                         <TableRow label="Highlights" value={data.highlights} />
                         <TableRow label="Key Takeaways" value={data.takeaways} />
                         <TableRow label="Summary" value={data.summary} />
-                        <TableRow label="Follow-up plan" value={data.followUpPlan} isLast={true} />
+                        <TableRow label="Follow-up plan" value={data.followUpPlan || data.followUp} isLast={true} />
                     </View>
                 </View>
 
@@ -207,8 +222,8 @@ export const ReportPDF = ({ data }: { data: any }) => {
                         <Text style={styles.centeredTitle}>Speaker Profile</Text>
                         {data.speakers.map((speaker: any, idx: number) => (
                             <View key={idx} style={{ marginBottom: 20 }} wrap={false}>
-                                {hasData(speaker.photo) && (
-                                    <Image src={speaker.photo} style={styles.speakerPhoto} />
+                                {hasData(speaker.photoUrl || speaker.photo) && (
+                                    <Image src={speaker.photoUrl || speaker.photo} style={styles.speakerPhoto} />
                                 )}
                                 {hasData(speaker.about) && (
                                     <Text style={styles.bodyText}>{speaker.about}</Text>
@@ -222,9 +237,12 @@ export const ReportPDF = ({ data }: { data: any }) => {
                 {hasArrayData(data.activityPhotos) && (
                     <View break>
                         <Text style={styles.centeredTitle}>Photos of the activity</Text>
+
+                        {/* 👈 UPDATED CAPTION TO USE FIXED DATE */}
                         <Text style={{ textAlign: 'center', marginBottom: 20, fontStyle: 'italic' }}>
-                            ({data.activityType || "Activity"} - {data.date || "Date"})
+                            ({data.activityType || "Activity"} - {dateDisplay})
                         </Text>
+
                         {data.activityPhotos.map((photo: any, idx: number) => (
                             <View key={idx} wrap={false} style={{ marginBottom: 15 }}>
                                 <Image src={photo.url} style={styles.activityPhoto} />

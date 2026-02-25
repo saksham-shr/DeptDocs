@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Search, HelpCircle, Settings, X, Lock, ChevronDown, Link as LinkIcon, Trash2, UserCircle, Loader2 } from 'lucide-react';
+import { Search, X, Lock, ChevronDown, Link as LinkIcon, Trash2, UserCircle, Loader2 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 
 interface ManageAccessModalProps {
     isOpen: boolean;
     onClose: () => void;
-    reportId?: string | null; // We need to know WHICH report we are sharing!
+    reportId?: string | null;
 }
 
 export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageAccessModalProps) {
@@ -32,23 +32,34 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
         setCurrentUser(user);
 
         // 1. Fetch the Report Owner
-        const { data: reportData } = await supabase
+        const { data: reportData, error: reportError } = await supabase
             .from('reports')
-            .select('owner_id, profiles!reports_owner_id_fkey(id, full_name, email)')
+            .select(`
+                owner_id, 
+                profiles:owner_id (id, full_name, email)
+            `)
             .eq('id', reportId)
             .single();
 
-        if (reportData && reportData.profiles) {
-            setOwner(reportData.profiles);
+        if (!reportError && reportData && reportData.profiles) {
+            // Supabase joins can sometimes return arrays or single objects based on the FK setup.
+            // We ensure we are always setting an object.
+            setOwner(Array.isArray(reportData.profiles) ? reportData.profiles[0] : reportData.profiles);
         }
 
-        // 2. Fetch the Collaborators (Joined with their profile data)
-        const { data: collabData } = await supabase
+        // 2. Fetch the Collaborators
+        const { data: collabData, error: collabError } = await supabase
             .from('collaborators')
-            .select('id, status, role, user_id, profiles!collaborators_user_id_fkey(id, full_name, email)')
+            .select(`
+                id, 
+                status, 
+                role, 
+                user_id, 
+                profiles:user_id (id, full_name, email)
+            `)
             .eq('report_id', reportId);
 
-        if (collabData) {
+        if (!collabError && collabData) {
             setCollaborators(collabData);
         }
         setIsLoading(false);
@@ -94,7 +105,7 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
             } else {
                 setInputValue('');
                 alert(`Invite sent to ${targetUser.full_name || inputValue}!`);
-                fetchAccessData(); // Refresh list
+                fetchAccessData(); // Refresh list to show them as 'Pending'
             }
         } catch (err) {
             console.error(err);
@@ -136,7 +147,7 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
                     </div>
                 </div>
 
-                {/* If no report ID is passed (e.g. clicking it before saving a draft) */}
+                {/* If no report ID is passed */}
                 {!reportId ? (
                     <div className="px-6 pb-8 pt-4 text-center">
                         <div className="w-16 h-16 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -174,7 +185,9 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
                             <h3 className="text-sm font-medium text-gray-800 mb-3">People with access</h3>
 
                             {isLoading ? (
-                                <div className="py-4 text-center text-sm text-gray-400">Loading access list...</div>
+                                <div className="py-4 text-center text-sm text-gray-400 flex justify-center items-center gap-2">
+                                    <Loader2 size={16} className="animate-spin" /> Loading access list...
+                                </div>
                             ) : (
                                 <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
 
@@ -199,7 +212,8 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
 
                                     {/* 2. Show Collaborators */}
                                     {collaborators.map((collab) => {
-                                        const profile = collab.profiles;
+                                        // Ensure profile is unwrapped if it came back as an array from the join
+                                        const profile = Array.isArray(collab.profiles) ? collab.profiles[0] : collab.profiles;
                                         const isYou = currentUser?.id === collab.user_id;
 
                                         return (

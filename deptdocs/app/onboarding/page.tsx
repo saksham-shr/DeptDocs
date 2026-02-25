@@ -1,24 +1,36 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
-import { Upload, X, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Upload, CheckCircle2, ChevronRight, AlertCircle } from 'lucide-react';
 
 export default function OnboardingPage() {
     const [formData, setFormData] = useState({
         fullName: '',
         designation: '',
         department: '',
-        email: '', // Pre-filled later from Auth
+        email: '',
     });
     const [signature, setSignature] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const router = useRouter();
     const supabase = createClient();
+
+    // Fetch the user's email automatically
+    useEffect(() => {
+        const fetchUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                setFormData(prev => ({ ...prev, email: user.email || '' }));
+            }
+        };
+        fetchUser();
+    }, [supabase]);
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -32,22 +44,67 @@ export default function OnboardingPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError(null);
+
         if (!signature) {
-            alert("Please upload your digital signature to proceed.");
+            setError("Please upload your digital signature to proceed.");
             return;
         }
+
         setLoading(true);
 
-        // Logic for DeptDocs:
-        // 1. Get the current authenticated user
-        // 2. Upload the signature file to Supabase Storage
-        // 3. Update the user's profile metadata
+        try {
+            // 1. Get the current authenticated user
+            const { data: { user }, error: authError } = await supabase.auth.getUser();
+            if (authError || !user) throw new Error("Could not verify user. Please log in again.");
 
-        console.log("Onboarding Data:", { ...formData, signature: signature.name });
+            // 2. Upload to Supabase Storage ('signatures' bucket)
+            const fileExt = signature.name.split('.').pop();
+            const filePath = `${user.id}-${Math.random()}.${fileExt}`;
 
-        // After saving, move to the Home Dashboard
-        router.push('/home');
-        setLoading(false);
+            const { error: uploadError } = await supabase.storage
+                .from('signatures')
+                .upload(filePath, signature);
+
+            if (uploadError) throw uploadError;
+
+            // 3. Get the public URL for the image
+            const { data: { publicUrl } } = supabase.storage
+                .from('signatures')
+                .getPublicUrl(filePath);
+
+            // 4. Save to the 'profiles' table (STRICTLY MATCHING YOUR SCHEMA)
+            const { error: dbError } = await supabase
+                .from('profiles')
+                .upsert({
+                    id: user.id,
+                    full_name: formData.fullName,
+                    designation: formData.designation,
+                    department: formData.department,
+                    email: formData.email,
+                    signature_url: publicUrl
+                    // REMOVED: onboarded and updated_at
+                });
+
+            if (dbError) throw dbError;
+
+            // Optional: Log the activity to your activity_logs table
+            await supabase.from('activity_logs').insert({
+                user_id: user.id,
+                user_name: formData.fullName,
+                action_type: 'USER_ONBOARDED',
+                description: `${formData.fullName} completed profile setup.`
+            });
+
+            // Success! Move to Dashboard
+            router.push('/home');
+
+        } catch (err: any) {
+            console.error("Save Error:", err.message);
+            setError(err.message || "Something went wrong while saving.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -63,48 +120,56 @@ export default function OnboardingPage() {
                         <p className="text-gray-500 mt-2">These details will be used for your official reports.</p>
                     </header>
 
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl flex items-center gap-3 text-sm">
+                            <AlertCircle size={18} />
+                            {error}
+                        </div>
+                    )}
+
                     <form onSubmit={handleSubmit} className="space-y-8">
-                        {/* Input Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-600">Full Name</label>
+                                <label className="text-sm font-bold text-gray-700">Full Name</label>
                                 <input
                                     name="fullName"
                                     required
+                                    value={formData.fullName}
                                     onChange={handleInputChange}
                                     placeholder="Enter your name"
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5065F6] outline-none"
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3b5998] outline-none transition-all"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-semibold text-gray-600">Designation</label>
+                                <label className="text-sm font-bold text-gray-700">Designation</label>
                                 <input
                                     name="designation"
                                     required
+                                    value={formData.designation}
                                     onChange={handleInputChange}
                                     placeholder="e.g. Student / Faculty"
-                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5065F6] outline-none"
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3b5998] outline-none transition-all"
                                 />
                             </div>
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-semibold text-gray-600">Department</label>
+                            <label className="text-sm font-bold text-gray-700">Department</label>
                             <input
                                 name="department"
                                 required
+                                value={formData.department}
                                 onChange={handleInputChange}
                                 placeholder="e.g. Department of AI, ML & Data Science"
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5065F6] outline-none"
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3b5998] outline-none transition-all"
                             />
                         </div>
 
-                        {/* Signature Upload Section */}
                         <div className="space-y-3">
-                            <label className="text-sm font-semibold text-gray-600">Digital Signature</label>
+                            <label className="text-sm font-bold text-gray-700">Digital Signature</label>
                             <div
                                 onClick={() => fileInputRef.current?.click()}
-                                className={`relative border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${signature ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-[#5065F6] hover:bg-blue-50'
+                                className={`relative border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${signature ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-[#3b5998] hover:bg-blue-50'
                                     }`}
                             >
                                 <input type="file" hidden ref={fileInputRef} accept="image/*" onChange={handleFileChange} />
@@ -136,7 +201,7 @@ export default function OnboardingPage() {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full bg-[#5065F6] text-white py-4 rounded-xl font-bold text-lg hover:bg-[#4054e5] transition-all flex items-center justify-center space-x-2"
+                            className="w-full bg-[#3b5998] text-white py-4 rounded-xl font-bold text-lg hover:bg-[#2d4373] transition-colors flex items-center justify-center space-x-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
                         >
                             <span>{loading ? "Saving Details..." : "Save and Continue"}</span>
                             {!loading && <ChevronRight size={20} />}

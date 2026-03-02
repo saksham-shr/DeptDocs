@@ -21,12 +21,21 @@ export default function OnboardingPage() {
     const router = useRouter();
     const supabase = createClient();
 
-    // Fetch the user's email automatically
+    // Fetch the user's email and metadata automatically
     useEffect(() => {
         const fetchUser = async () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-                setFormData(prev => ({ ...prev, email: user.email || '' }));
+                // Extract the metadata saved during signup
+                const firstName = user.user_metadata?.first_name || '';
+                const lastName = user.user_metadata?.last_name || '';
+                const combinedName = `${firstName} ${lastName}`.trim();
+
+                setFormData(prev => ({
+                    ...prev,
+                    email: user.email || '',
+                    fullName: combinedName // Autofill the combined name!
+                }));
             }
         };
         fetchUser();
@@ -83,7 +92,6 @@ export default function OnboardingPage() {
                     department: formData.department,
                     email: formData.email,
                     signature_url: publicUrl
-                    // REMOVED: onboarded and updated_at
                 });
 
             if (dbError) throw dbError;

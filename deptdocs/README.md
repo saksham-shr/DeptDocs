@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎓 DeptDocs
 
-## Getting Started
+A full-stack, comprehensive web application built for the **Department of AI & Data Science at Christ University**. This platform digitizes and streamlines the creation, collaborative editing, and administrative approval of official university activity reports.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## ✨ Comprehensive Feature List
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 📝 Smart Document Generation
+* **Multi-Step Editor:** A guided, intuitive form to input event details, speaker profiles, participant metrics, and upload event photos/attachments.
+* **Live PDF Preview:** Instantly renders inputted data into the official university A4 PDF format.
+* **Smart Date & Time Handling:** Automatically formats date ranges (e.g., "12th March 2026 to 13th March 2026") seamlessly into the final document.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 🤝 Collaboration & Access Control
+* **Role-Based Access:** Users can invite colleagues to documents as either **Editors** (can modify) or **Viewers** (read-only).
+* **Ownership Protection:** Advanced database security ensures that collaborators cannot accidentally overwrite or hijack document ownership.
+* **Race-Condition Locks:** React hooks securely lock document states during initial fetch to prevent blank-data overwrites on slow connections.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 🛡️ Admin Command Center
+* **Review Queue:** Department heads can view all submitted reports awaiting approval.
+* **Approval & Push to Drive:** One-click approval that automatically pushes the final PDF to the official University Google Drive.
+* **Revision Workflow:** Admins can reject reports, attach specific feedback, and instantly revert the document to "Draft" status for the original author.
+* **Task Delegation:** Admins can generate blank draft assignments and push them directly to a specific faculty member's dashboard.
 
-## Learn More
+### 🔔 Real-Time Notifications
+* **Live Alert Bell:** Powered by WebSockets, users receive instant, live UI alerts without refreshing the page.
+* **Notification Triggers:** * "You have been invited to collaborate."
+  * "Your role has been changed."  
+  * "Admin requested revisions on your report."  
+  * "You have been assigned a new report task."
 
-To learn more about Next.js, take a look at the following resources:
+### 👤 Automated Onboarding
+* **Metadata Extraction:** Automatically pulls user details from the sign-up phase.
+* **Digital Signatures:** Secure upload and storage of user signatures, automatically appended to the bottom of their generated reports.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🛠️ Tech Stack
 
-## Deploy on Vercel
+* **Frontend:** Next.js 14 (App Router), React, Tailwind CSS
+* **Backend / Database:** Supabase (PostgreSQL)
+* **Authentication:** Supabase Auth
+* **Storage:** Supabase Storage Buckets
+* **Realtime:** Supabase Realtime (WebSockets)
+* **PDF Rendering:** `@react-pdf/renderer`
+* **Icons:** `lucide-react`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

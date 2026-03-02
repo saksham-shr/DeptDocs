@@ -63,7 +63,7 @@ export default function GeneralInfo({ data, onUpdate, onNext }: any) {
                     </select>
                 </div>
 
-                {/* Date & Time Grid matching image_9c00e3.png */}
+                {/* Date & Time Grid */}
                 <div className="grid grid-cols-2 gap-8 pt-2">
                     <div className="space-y-4">
                         <div className="space-y-1">
@@ -96,14 +96,24 @@ export default function GeneralInfo({ data, onUpdate, onNext }: any) {
                         <div className="space-y-1">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">End Date</label>
                             <div className="flex items-center border rounded-lg bg-gray-50 p-3">
-                                <input type="date" className="bg-transparent w-full outline-none text-sm" />
+                                <input
+                                    type="date"
+                                    className="bg-transparent w-full outline-none text-sm"
+                                    value={data.endDate || ''}
+                                    onChange={(e) => onUpdate({ endDate: e.target.value })}
+                                />
                                 <Calendar size={16} className="text-gray-400" />
                             </div>
                         </div>
                         <div className="space-y-1">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">End Time</label>
                             <div className="flex items-center border rounded-lg bg-gray-50 p-3">
-                                <input type="time" className="bg-transparent w-full outline-none text-sm" />
+                                <input
+                                    type="time"
+                                    className="bg-transparent w-full outline-none text-sm"
+                                    value={data.endTime || ''}
+                                    onChange={(e) => onUpdate({ endTime: e.target.value })}
+                                />
                                 <Clock size={16} className="text-gray-400" />
                             </div>
                         </div>

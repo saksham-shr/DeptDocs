@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { ChevronRight, CheckCircle2, Upload } from 'lucide-react';
 
-// This is where you will eventually import your Supabase client
-// import { supabase } from '@/utils/supabase/client';
+// Adjust this import path based on your Next.js project structure
+import { createClient } from '@/utils/supabase/client';
 
 export default function PreparedBy({ data, onUpdate, onNext }: any) {
     const [loading, setLoading] = useState(false);
@@ -20,31 +20,54 @@ export default function PreparedBy({ data, onUpdate, onNext }: any) {
         onUpdate({ organizersList: updated });
     };
 
-    // Function to handle "Use saved info from profile"
+    // Function to handle "Use saved info from profile" with actual Supabase DB fetch
     const handleToggleProfile = async (checked: boolean) => {
         if (checked) {
             setLoading(true);
 
-            // MOCK DATA (Matches your onboarding inputs)
-            const mockProfile = {
-                fullName: "Saksham Sharma",
-                designation: "B.Tech Student",
-                signatureUrl: "/mock-signature.png"
-            };
+            try {
+                const supabase = createClient();
 
-            const updated = [...organizers];
-            updated[0] = {
-                name: mockProfile.fullName,
-                designation: mockProfile.designation,
-                signatureImage: mockProfile.signatureUrl
-            };
+                // 1. Get the current authenticated user
+                const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-            onUpdate({
-                organizersList: updated,
-                useProfile: true
-            });
-            setLoading(false);
+                if (authError || !user) {
+                    throw new Error("User not authenticated");
+                }
+
+                // 2. Fetch the profile data matching your profiles table schema
+                const { data: profile, error: profileError } = await supabase
+                    .from('profiles')
+                    .select('full_name, designation, signature_url')
+                    .eq('id', user.id)
+                    .single();
+
+                if (profileError) {
+                    throw profileError;
+                }
+
+                // 3. Update the state with actual database values
+                const updated = [...organizers];
+                updated[0] = {
+                    name: profile.full_name || '',
+                    designation: profile.designation || '',
+                    signatureImage: profile.signature_url || ''
+                };
+
+                onUpdate({
+                    organizersList: updated,
+                    useProfile: true
+                });
+
+            } catch (error) {
+                console.error("Error fetching profile data:", error);
+                // Revert the checkbox if the fetch fails so the user isn't stuck
+                onUpdate({ useProfile: false });
+            } finally {
+                setLoading(false);
+            }
         } else {
+            // Clear the fields when unchecked
             const updated = [...organizers];
             updated[0] = { name: '', designation: '', signatureImage: '' };
             onUpdate({
@@ -73,6 +96,7 @@ export default function PreparedBy({ data, onUpdate, onNext }: any) {
                         value={organizers[0].name || ''}
                         onChange={(e) => updateOrganizer('name', e.target.value)}
                         className="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:ring-2 focus:ring-[#3b5998]"
+                        disabled={loading}
                     />
                 </div>
 
@@ -84,6 +108,7 @@ export default function PreparedBy({ data, onUpdate, onNext }: any) {
                         value={organizers[0].designation || ''}
                         onChange={(e) => updateOrganizer('designation', e.target.value)}
                         className="w-full p-3 border rounded-lg bg-gray-50 outline-none focus:ring-2 focus:ring-[#3b5998]"
+                        disabled={loading}
                     />
                 </div>
 
@@ -98,7 +123,7 @@ export default function PreparedBy({ data, onUpdate, onNext }: any) {
                             </div>
                         ) : (
                             <div className="flex flex-col items-center">
-                                <button className="bg-[#4F65F6] text-white px-6 py-2 rounded-full font-bold text-xs mb-4">
+                                <button className="bg-[#4F65F6] text-white px-6 py-2 rounded-full font-bold text-xs mb-4 hover:bg-[#3b5998] transition-colors">
                                     Upload
                                 </button>
                                 <p className="text-xs text-gray-400 text-center">
@@ -116,7 +141,8 @@ export default function PreparedBy({ data, onUpdate, onNext }: any) {
                             type="checkbox"
                             checked={data.useProfile || false}
                             onChange={(e) => handleToggleProfile(e.target.checked)}
-                            className="w-5 h-5 accent-[#3b5998] cursor-pointer"
+                            disabled={loading}
+                            className="w-5 h-5 accent-[#3b5998] cursor-pointer disabled:opacity-50"
                         />
                         <span className="text-sm font-medium text-gray-600 group-hover:text-black">
                             {loading ? "Fetching Profile..." : "Use saved info from profile"}

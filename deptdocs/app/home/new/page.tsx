@@ -30,7 +30,8 @@ import {
     ListChecks,
     BookOpen,
     ShieldCheck,
-    BarChart3
+    BarChart3,
+    Loader2
 } from 'lucide-react';
 
 function ReportEditorContent() {
@@ -43,22 +44,22 @@ function ReportEditorContent() {
     const [reportId, setReportId] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
 
+    // 🔒 LOCK: Prevents overwriting the database with an empty state before data loads
+    const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
+
     // Toggle state between Form Editor and Asset Manager Views
     const [viewMode, setViewMode] = useState<'editor' | 'assets'>('editor');
 
     // State to track the active sidebar section
     const [activeSection, setActiveSection] = useState('General Information');
 
-    // Master state for all report data - RESTORED FULL FORMATTING
+    // Master state for all report data
     const [reportData, setReportData] = useState({
-        // General Info
         activityTitle: '',
         activityType: '',
         subCategory: '',
         venue: '',
         collaboration: '',
-
-        // Dynamic Lists
         speakers: [{
             id: Date.now(),
             name: '',
@@ -74,26 +75,20 @@ function ReportEditorContent() {
             { id: 2, type: 'Faculty', count: '' },
             { id: 3, type: 'Research Scholar', count: '' }
         ],
-
-        // Synopsis
         highlights: '',
         takeaways: '',
         summary: '',
         followUp: '',
-
-        // Prepared By
         preparedByName: '',
         preparedByDesignation: '',
         preparedBySignature: '',
         useProfile: false,
         useCollaborators: false,
-
-        // File Uploads
-        activityPhotos: [] as any[],  // Stores {id, url, caption}
-        attendanceFiles: [] as any[], // Stores {id, name, type, url}
-        brochureFiles: [] as any[],   // Stores {id, name, type, url}
-        approvalFiles: [] as any[],   // Stores {id, name, type, url}
-        feedbackFiles: [] as any[]    // Stores {id, name, type, url}
+        activityPhotos: [] as any[],
+        attendanceFiles: [] as any[],
+        brochureFiles: [] as any[],
+        approvalFiles: [] as any[],
+        feedbackFiles: [] as any[]
     });
 
     // --- FETCH EXISTING REPORT ON LOAD ---
@@ -108,15 +103,19 @@ function ReportEditorContent() {
 
                 if (data && !error) {
                     setReportId(data.id);
-                    // Load the saved JSON back into the form state!
+                    // Load the saved JSON back into the form state
                     if (data.data) {
                         setReportData((prev) => ({ ...prev, ...data.data }));
                     }
+                    setIsInitialLoadDone(true); // ✅ Data loaded, safe to render and save
                 } else if (error) {
                     console.error("Error loading report:", error);
+                    setIsInitialLoadDone(true); // Unlock anyway so they aren't stuck on a loading screen forever
                 }
             };
             loadReport();
+        } else {
+            setIsInitialLoadDone(true); // New report, no fetch needed, safe to save immediately
         }
     }, [existingId, supabase]);
 
@@ -152,12 +151,12 @@ function ReportEditorContent() {
         setViewMode('editor');
     };
 
-    // --- 1. DRAFT SAVE FUNCTION (Keeps status as 'draft') ---
+    // --- 1. DRAFT SAVE FUNCTION ---
     const handleSaveDraft = async (currentData: any) => {
+        if (!isInitialLoadDone) return; // 🛑 Safety check to prevent saving empty data
         setIsSaving(true);
 
         try {
-            // Get the currently logged-in user
             const { data: { user }, error: authError } = await supabase.auth.getUser();
 
             if (authError || !user) {
@@ -166,55 +165,40 @@ function ReportEditorContent() {
                 return;
             }
 
-            // Prepare the payload matching our new SQL schema
             const reportTitle = currentData.activityTitle?.trim() || "Untitled Report";
 
-            const payload = {
-                owner_id: user.id,
-                title: reportTitle,
-                data: currentData,
-                status: 'draft'
-            };
-
-            // Insert or Update
             if (reportId) {
-                // UPDATE existing draft
+                // UPDATE existing draft - ❌ REMOVED owner_id to prevent hijacking
                 const { error } = await supabase
                     .from('reports')
-                    .update({ ...payload, updated_at: new Date().toISOString() })
+                    .update({
+                        title: reportTitle,
+                        data: currentData,
+                        updated_at: new Date().toISOString()
+                    })
                     .eq('id', reportId);
 
                 if (error) throw error;
-
-                // Activity Logging
-                await logActivity(
-                    'REPORT_SAVED',
-                    `Saved draft: ${reportTitle}`,
-                    reportId
-                );
-
+                await logActivity('REPORT_SAVED', `Saved draft: ${reportTitle}`, reportId);
                 alert("Draft updated successfully!");
 
             } else {
-                // INSERT new draft
+                // INSERT new draft - ✅ owner_id only set on creation
                 const { data, error } = await supabase
                     .from('reports')
-                    .insert([payload])
+                    .insert([{
+                        owner_id: user.id,
+                        title: reportTitle,
+                        data: currentData,
+                        status: 'draft'
+                    }])
                     .select('id')
                     .single();
 
                 if (error) throw error;
-
-                // Save the new DB ID so future clicks update this exact row
                 if (data) {
                     setReportId(data.id);
-
-                    // Activity Logging
-                    await logActivity(
-                        'REPORT_SAVED',
-                        `Saved draft: ${reportTitle}`,
-                        data.id
-                    );
+                    await logActivity('REPORT_SAVED', `Saved draft: ${reportTitle}`, data.id);
                 }
                 alert("New draft saved successfully!");
             }
@@ -227,8 +211,10 @@ function ReportEditorContent() {
         }
     };
 
-    // --- 2. SUBMIT FUNCTION (Changes status to 'completed') ---
+    // --- 2. SUBMIT FUNCTION ---
     const handleMarkCompleted = async (currentData: any) => {
+        if (!isInitialLoadDone) return; // 🛑 Safety check
+
         if (!confirm("Are you sure you want to submit this report for admin review? You will not be able to edit it once submitted.")) {
             return;
         }
@@ -243,26 +229,30 @@ function ReportEditorContent() {
 
             const reportTitle = currentData.activityTitle?.trim() || "Untitled Report";
 
-            // Set status to 'completed' so it shows up in AdminDashboard
-            const payload = {
-                owner_id: user.id,
-                title: reportTitle,
-                data: currentData,
-                status: 'completed'
-            };
-
             if (reportId) {
+                // UPDATE existing draft - ❌ REMOVED owner_id to prevent hijacking
                 const { error } = await supabase
                     .from('reports')
-                    .update({ ...payload, updated_at: new Date().toISOString() })
+                    .update({
+                        title: reportTitle,
+                        data: currentData,
+                        status: 'completed',
+                        updated_at: new Date().toISOString()
+                    })
                     .eq('id', reportId);
 
                 if (error) throw error;
                 await logActivity('REPORT_COMPLETED', `Submitted for review: ${reportTitle}`, reportId);
             } else {
+                // INSERT new report
                 const { data, error } = await supabase
                     .from('reports')
-                    .insert([payload])
+                    .insert([{
+                        owner_id: user.id,
+                        title: reportTitle,
+                        data: currentData,
+                        status: 'completed'
+                    }])
                     .select('id')
                     .single();
 
@@ -310,121 +300,133 @@ function ReportEditorContent() {
             onViewModeChange={setViewMode}
         >
             {/* CONTENT AREA */}
-            {viewMode === 'assets' ? (
-                <AssetManager
-                    reportId={reportId}
-                    onDataExtracted={handleAiData}
-                    onFilesUpdated={handleFilesUpdated}
-                    currentFiles={{
-                        activityPhotos: reportData.activityPhotos,
-                        brochureFiles: reportData.brochureFiles,
-                        attendanceFiles: reportData.attendanceFiles,
-                        approvalFiles: reportData.approvalFiles,
-                        feedbackFiles: reportData.feedbackFiles
-                    }}
-                />
-            ) : (
-                <div className="space-y-6">
-                    {/* 1. General Information */}
-                    {activeSection === 'General Information' && (
-                        <GeneralInfo
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Speaker/Guest Details')}
-                        />
-                    )}
 
-                    {/* 2. Speaker/Guest Details */}
-                    {activeSection === 'Speaker/Guest Details' && (
-                        <SpeakerDetails
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Participants Profile')}
-                        />
-                    )}
-
-                    {/* 3. Participants Profile */}
-                    {activeSection === 'Participants Profile' && (
-                        <ParticipantProfile
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Synopsis')}
-                        />
-                    )}
-
-                    {/* 4. Synopsis */}
-                    {activeSection === 'Synopsis' && (
-                        <Synopsis
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Report Prepared By')}
-                        />
-                    )}
-
-                    {/* 5. Report Prepared By */}
-                    {activeSection === 'Report Prepared By' && (
-                        <PreparedBy
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Speaker Profile')}
-                        />
-                    )}
-
-                    {/* 6. Speaker Profile */}
-                    {activeSection === 'Speaker Profile' && (
-                        <SpeakerProfile
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Activity Photos')}
-                        />
-                    )}
-
-                    {/* 7. Activity Photos */}
-                    {activeSection === 'Activity Photos' && (
-                        <ActivityPhotos
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Attendance List')}
-                        />
-                    )}
-
-                    {/* 8. Attendance List */}
-                    {activeSection === 'Attendance List' && (
-                        <AttendanceList
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Brochure')}
-                        />
-                    )}
-
-                    {/* 9. Brochure */}
-                    {activeSection === 'Brochure' && (
-                        <Brochure
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Notice for Approval')}
-                        />
-                    )}
-
-                    {/* 10. Notice for Approval */}
-                    {activeSection === 'Notice for Approval' && (
-                        <NoticeApproval
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onNext={() => setActiveSection('Feedback Analysis')}
-                        />
-                    )}
-
-                    {/* 11. Feedback Analysis */}
-                    {activeSection === 'Feedback Analysis' && (
-                        <FeedbackAnalysis
-                            data={reportData}
-                            onUpdate={handleDataUpdate}
-                            onFinish={() => handleMarkCompleted(reportData)}
-                        />
-                    )}
+            {/* Show a loader while pulling the existing data to prevent blank overwrites */}
+            {!isInitialLoadDone && (
+                <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                    <Loader2 size={32} className="animate-spin text-[#3168d8] mb-4" />
+                    <p className="font-bold text-xs uppercase tracking-widest">Loading Document...</p>
                 </div>
             )}
+
+            {/* Fade out the editor and disable clicks while loading */}
+            <div className={!isInitialLoadDone ? "opacity-30 pointer-events-none" : "transition-opacity duration-300"}>
+                {viewMode === 'assets' ? (
+                    <AssetManager
+                        reportId={reportId}
+                        onDataExtracted={handleAiData}
+                        onFilesUpdated={handleFilesUpdated}
+                        currentFiles={{
+                            activityPhotos: reportData.activityPhotos,
+                            brochureFiles: reportData.brochureFiles,
+                            attendanceFiles: reportData.attendanceFiles,
+                            approvalFiles: reportData.approvalFiles,
+                            feedbackFiles: reportData.feedbackFiles
+                        }}
+                    />
+                ) : (
+                    <div className="space-y-6">
+                        {/* 1. General Information */}
+                        {activeSection === 'General Information' && (
+                            <GeneralInfo
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Speaker/Guest Details')}
+                            />
+                        )}
+
+                        {/* 2. Speaker/Guest Details */}
+                        {activeSection === 'Speaker/Guest Details' && (
+                            <SpeakerDetails
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Participants Profile')}
+                            />
+                        )}
+
+                        {/* 3. Participants Profile */}
+                        {activeSection === 'Participants Profile' && (
+                            <ParticipantProfile
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Synopsis')}
+                            />
+                        )}
+
+                        {/* 4. Synopsis */}
+                        {activeSection === 'Synopsis' && (
+                            <Synopsis
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Report Prepared By')}
+                            />
+                        )}
+
+                        {/* 5. Report Prepared By */}
+                        {activeSection === 'Report Prepared By' && (
+                            <PreparedBy
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Speaker Profile')}
+                            />
+                        )}
+
+                        {/* 6. Speaker Profile */}
+                        {activeSection === 'Speaker Profile' && (
+                            <SpeakerProfile
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Activity Photos')}
+                            />
+                        )}
+
+                        {/* 7. Activity Photos */}
+                        {activeSection === 'Activity Photos' && (
+                            <ActivityPhotos
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Attendance List')}
+                            />
+                        )}
+
+                        {/* 8. Attendance List */}
+                        {activeSection === 'Attendance List' && (
+                            <AttendanceList
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Brochure')}
+                            />
+                        )}
+
+                        {/* 9. Brochure */}
+                        {activeSection === 'Brochure' && (
+                            <Brochure
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Notice for Approval')}
+                            />
+                        )}
+
+                        {/* 10. Notice for Approval */}
+                        {activeSection === 'Notice for Approval' && (
+                            <NoticeApproval
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onNext={() => setActiveSection('Feedback Analysis')}
+                            />
+                        )}
+
+                        {/* 11. Feedback Analysis */}
+                        {activeSection === 'Feedback Analysis' && (
+                            <FeedbackAnalysis
+                                data={reportData}
+                                onUpdate={handleDataUpdate}
+                                onFinish={() => handleMarkCompleted(reportData)}
+                            />
+                        )}
+                    </div>
+                )}
+            </div>
         </ReportLayout>
     );
 }
@@ -434,7 +436,7 @@ export default function NewReportPage() {
     return (
         <Suspense fallback={
             <div className="flex h-screen w-full items-center justify-center bg-[#F4F7FE] text-gray-500 font-medium">
-                Loading editor...
+                <Loader2 className="animate-spin mr-2" size={24} /> Loading editor...
             </div>
         }>
             <ReportEditorContent />

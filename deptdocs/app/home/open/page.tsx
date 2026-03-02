@@ -18,6 +18,7 @@ export default function OpenFileDashboard() {
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
     const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+    const [userId, setUserId] = useState<string | null>(null);
 
     const [reports, setReports] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -30,29 +31,66 @@ export default function OpenFileDashboard() {
 
     const fetchReports = async () => {
         setLoading(true);
-        const { data: { user } } = await supabase.auth.getUser();
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
 
-        if (!user) {
-            router.push('/');
-            return;
+            if (!user) {
+                router.push('/');
+                return;
+            }
+
+            setUserId(user.id);
+
+            // 1. Fetch reports owned by the current user (Using correct 'owner_id' column)
+            const { data: ownedReports, error: ownedError } = await supabase
+                .from('reports')
+                .select('*')
+                .eq('owner_id', user.id)
+                .order('updated_at', { ascending: false });
+
+            if (ownedError) console.error("Error fetching owned reports:", ownedError);
+
+            // 2. Fetch shared reports (Filtering for 'accepted' status)
+            const { data: sharedData, error: sharedError } = await supabase
+                .from('collaborators')
+                .select('reports(*)')
+                .eq('user_id', user.id)
+                .eq('status', 'accepted'); // Only show it if they accepted the invite
+
+            if (sharedError) console.error("Error fetching shared reports:", sharedError);
+
+            // Safely extract the reports from the joined collaborators query
+            let sharedReports = [];
+            if (sharedData) {
+                sharedReports = sharedData.map((item: any) => {
+                    // Supabase joins sometimes return an array or a single object depending on the relationship setup
+                    return Array.isArray(item.reports) ? item.reports[0] : item.reports;
+                }).filter(Boolean); // Filter out any nulls if a report was deleted
+            }
+
+            // Combine owned and shared reports
+            const allReports = [...(ownedReports || []), ...sharedReports];
+
+            // Deduplicate just in case (if a user is somehow owner and collaborator)
+            const uniqueReports = Array.from(new Map(allReports.map(r => [r.id, r])).values());
+
+            // Sort everything by updated_at descending (newest first)
+            uniqueReports.sort((a, b) => new Date(b?.updated_at || 0).getTime() - new Date(a?.updated_at || 0).getTime());
+
+            setReports(uniqueReports);
+        } catch (err) {
+            console.error("Critical error in fetchReports:", err);
+        } finally {
+            setLoading(false);
         }
-
-        const { data, error } = await supabase
-            .from('reports')
-            .select('*')
-            .order('updated_at', { ascending: false });
-
-        if (!error && data) {
-            setReports(data);
-        }
-        setLoading(false);
     };
 
     const getFilteredReports = () => {
         if (activeTab === 'Recent') return reports.slice(0, 10);
         if (activeTab === 'Drafts') return reports.filter(r => r.status === 'draft');
         if (activeTab === 'Completed') return reports.filter(r => r.status === 'completed');
-        if (activeTab === 'Shared') return []; // Logic for collaborators can be added here
+        // Logic updated to use 'owner_id' as defined in your schema
+        if (activeTab === 'Shared') return reports.filter(r => r.owner_id !== userId);
         return reports;
     };
 

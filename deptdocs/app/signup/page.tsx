@@ -1,166 +1,220 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-
-// Supabase client helper
 import { createClient } from '@/utils/supabase/client';
-import { Eye, EyeOff } from 'lucide-react';
+import { Upload, CheckCircle2, ChevronRight, AlertCircle } from 'lucide-react';
 
-export default function SignupPage() {
-    // 1. Setup states for all fields in the design
+export default function OnboardingPage() {
     const [formData, setFormData] = useState({
-        firstName: '',
-        lastName: '',
+        fullName: '',
+        designation: '',
+        department: '',
         email: '',
-        phone: '',
-        password: '',
-        confirmPassword: ''
     });
-    const [showPassword, setShowPassword] = useState(false);
-    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [signature, setSignature] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const router = useRouter();
     const supabase = createClient();
 
-    // 2. Handle Logic
-    const handleSignup = async (e: React.FormEvent) => {
+    // Fetch the user's email and metadata automatically
+    useEffect(() => {
+        const fetchUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                // Extract the metadata saved during signup
+                const firstName = user.user_metadata?.first_name || '';
+                const lastName = user.user_metadata?.last_name || '';
+                const combinedName = `${firstName} ${lastName}`.trim();
+
+                setFormData(prev => ({
+                    ...prev,
+                    email: user.email || '',
+                    fullName: combinedName // Autofill the combined name!
+                }));
+            }
+        };
+        fetchUser();
+    }, [supabase]);
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setSignature(e.target.files[0]);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (formData.password !== formData.confirmPassword) {
-            alert("Passwords do not match!");
+        setError(null);
+
+        if (!signature) {
+            setError("Please upload your digital signature to proceed.");
             return;
         }
 
         setLoading(true);
-        const { error } = await supabase.auth.signUp({
-            email: formData.email,
-            password: formData.password,
-            options: {
-                // Storing additional metadata (names/phone) in Supabase
-                data: {
-                    first_name: formData.firstName,
-                    last_name: formData.lastName,
-                    phone_number: formData.phone
-                },
-                emailRedirectTo: `${window.location.origin}/auth/callback`,
-            },
-        });
 
-        if (error) {
-            alert(error.message);
+        try {
+            // 1. Get the current authenticated user
+            const { data: { user }, error: authError } = await supabase.auth.getUser();
+            if (authError || !user) throw new Error("Could not verify user. Please log in again.");
+
+            // 2. Upload to Supabase Storage ('signatures' bucket)
+            const fileExt = signature.name.split('.').pop();
+            const filePath = `${user.id}-${Math.random()}.${fileExt}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('signatures')
+                .upload(filePath, signature);
+
+            if (uploadError) throw uploadError;
+
+            // 3. Get the public URL for the image
+            const { data: { publicUrl } } = supabase.storage
+                .from('signatures')
+                .getPublicUrl(filePath);
+
+            // 4. Save to the 'profiles' table (STRICTLY MATCHING YOUR SCHEMA)
+            const { error: dbError } = await supabase
+                .from('profiles')
+                .upsert({
+                    id: user.id,
+                    full_name: formData.fullName,
+                    designation: formData.designation,
+                    department: formData.department,
+                    email: formData.email,
+                    signature_url: publicUrl
+                });
+
+            if (dbError) throw dbError;
+
+            // Optional: Log the activity to your activity_logs table
+            await supabase.from('activity_logs').insert({
+                user_id: user.id,
+                user_name: formData.fullName,
+                action_type: 'USER_ONBOARDED',
+                description: `${formData.fullName} completed profile setup.`
+            });
+
+            // Success! Move to Dashboard
+            router.push('/home');
+
+        } catch (err: any) {
+            console.error("Save Error:", err.message);
+            setError(err.message || "Something went wrong while saving.");
+        } finally {
             setLoading(false);
-        } else {
-            alert("Please check your email to confirm your account!");
-            router.push('/login');
         }
     };
 
-    // Helper to update state
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
-    };
-
     return (
-        <main className="min-h-screen flex items-center justify-center bg-white p-6">
-            <div className="max-w-7xl w-full grid grid-cols-1 lg:grid-cols-2 gap-12 items-center text-black">
-
-                {/* LEFT COLUMN: Illustration (Matches the design placement) */}
-                <div className="hidden lg:flex items-center justify-center">
-                    <div className="relative w-full h-[500px]">
-                        <Image
-                            src="/signup-illustration.png" // The blue phone/shield graphic
-                            alt="Security Illustration"
-                            fill
-                            className="object-contain"
-                            priority
-                        />
-                    </div>
+        <main className="min-h-screen bg-[#F8FAFC] flex flex-col items-center py-12 px-6 text-black">
+            <div className="max-w-2xl w-full">
+                <div className="flex justify-center mb-8">
+                    <Image src="/christ-logo.png" alt="Christ University" width={280} height={90} priority />
                 </div>
 
-                {/* RIGHT COLUMN: Signup Form */}
-                <div className="w-full max-w-xl mx-auto lg:mx-0">
-                    <div className="flex flex-col space-y-6">
-                        {/* Logo Header */}
-                        <div className="flex justify-end">
-                            <Image src="/christ-logo.png" alt="Christ Logo" width={250} height={80} priority />
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-10">
+                    <header className="mb-10 text-center">
+                        <h1 className="text-3xl font-bold text-gray-900">Setup Your Profile</h1>
+                        <p className="text-gray-500 mt-2">These details will be used for your official reports.</p>
+                    </header>
+
+                    {error && (
+                        <div className="mb-6 p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl flex items-center gap-3 text-sm">
+                            <AlertCircle size={18} />
+                            {error}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleSubmit} className="space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700">Full Name</label>
+                                <input
+                                    name="fullName"
+                                    required
+                                    value={formData.fullName}
+                                    onChange={handleInputChange}
+                                    placeholder="Enter your name"
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3b5998] outline-none transition-all"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold text-gray-700">Designation</label>
+                                <input
+                                    name="designation"
+                                    required
+                                    value={formData.designation}
+                                    onChange={handleInputChange}
+                                    placeholder="e.g. Student / Faculty"
+                                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3b5998] outline-none transition-all"
+                                />
+                            </div>
                         </div>
 
-                        <div>
-                            <h1 className="text-4xl font-bold text-gray-900">Sign up</h1>
-                            <p className="text-gray-500 mt-2">Let's get you all set up so you can access your personal account.</p>
+                        <div className="space-y-2">
+                            <label className="text-sm font-bold text-gray-700">Department</label>
+                            <input
+                                name="department"
+                                required
+                                value={formData.department}
+                                onChange={handleInputChange}
+                                placeholder="e.g. Department of AI, ML & Data Science"
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#3b5998] outline-none transition-all"
+                            />
                         </div>
 
-                        <form onSubmit={handleSignup} className="space-y-4">
-                            {/* Name Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">First Name</label>
-                                    <input name="firstName" required onChange={handleChange} placeholder="First Name" className="w-full px-4 py-2 rounded-md border border-gray-300 outline-none focus:ring-2 focus:ring-[#5065F6]" />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Last Name</label>
-                                    <input name="lastName" required onChange={handleChange} placeholder="Last Name" className="w-full px-4 py-2 rounded-md border border-gray-300 outline-none focus:ring-2 focus:ring-[#5065F6]" />
-                                </div>
+                        <div className="space-y-3">
+                            <label className="text-sm font-bold text-gray-700">Digital Signature</label>
+                            <div
+                                onClick={() => fileInputRef.current?.click()}
+                                className={`relative border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all ${signature ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-[#3b5998] hover:bg-blue-50'
+                                    }`}
+                            >
+                                <input type="file" hidden ref={fileInputRef} accept="image/*" onChange={handleFileChange} />
+
+                                {signature ? (
+                                    <div className="flex flex-col items-center text-green-700">
+                                        <CheckCircle2 size={40} className="mb-2" />
+                                        <span className="font-medium text-sm">{signature.name}</span>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); setSignature(null); }}
+                                            className="mt-2 text-xs text-red-500 hover:underline font-bold"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <Upload size={32} className="text-gray-400 mb-2" />
+                                        <p className="text-gray-500 text-sm text-center">
+                                            Click to upload an image of your signature <br />
+                                            <span className="text-xs">(PNG or JPG recommended)</span>
+                                        </p>
+                                    </>
+                                )}
                             </div>
-
-                            {/* Contact Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Email</label>
-                                    <input name="email" type="email" required onChange={handleChange} placeholder="Email" className="w-full px-4 py-2 rounded-md border border-gray-300 outline-none focus:ring-2 focus:ring-[#5065F6]" />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-sm font-medium">Phone Number</label>
-                                    <input name="phone" type="tel" required onChange={handleChange} placeholder="Phone Number" className="w-full px-4 py-2 rounded-md border border-gray-300 outline-none focus:ring-2 focus:ring-[#5065F6]" />
-                                </div>
-                            </div>
-
-                            {/* Password Fields */}
-                            <div className="space-y-1 relative">
-                                <label className="text-sm font-medium">Password</label>
-                                <input name="password" type={showPassword ? "text" : "password"} required onChange={handleChange} placeholder="Password" className="w-full px-4 py-2 rounded-md border border-gray-300 outline-none focus:ring-2 focus:ring-[#5065F6]" />
-                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-9 text-gray-400">
-                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            </div>
-
-                            <div className="space-y-1 relative">
-                                <label className="text-sm font-medium">Confirm Password</label>
-                                <input name="confirmPassword" type={showConfirmPassword ? "text" : "password"} required onChange={handleChange} placeholder="Confirm Password" className="w-full px-4 py-2 rounded-md border border-gray-300 outline-none focus:ring-2 focus:ring-[#5065F6]" />
-                                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-9 text-gray-400">
-                                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                </button>
-                            </div>
-
-                            {/* Terms */}
-                            <label className="flex items-center space-x-2 text-sm cursor-pointer">
-                                <input type="checkbox" required className="rounded border-gray-300 text-[#5065F6]" />
-                                <span>I agree to all the <span className="text-pink-500 font-medium">Terms</span> and <span className="text-pink-500 font-medium">Privacy Policies</span></span>
-                            </label>
-
-                            <button type="submit" disabled={loading} className="w-full bg-[#5065F6] text-white py-3 rounded-md font-semibold hover:bg-[#4054e5] transition-all">
-                                {loading ? "Creating account..." : "Create account"}
-                            </button>
-
-                            <p className="text-center text-sm">
-                                Already have an account? <Link href="/login" className="text-pink-500 font-bold hover:underline">Login</Link>
-                            </p>
-                        </form>
-
-                        {/* Social Signup */}
-                        <div className="relative my-2 text-center">
-                            <span className="bg-white px-2 text-sm text-gray-400 relative z-10">Or Sign up with</span>
-                            <div className="absolute top-1/2 left-0 w-full border-t border-gray-200"></div>
                         </div>
 
-                        <button type="button" className="w-full flex items-center justify-center gap-3 py-2 border border-gray-300 rounded-full hover:bg-gray-50 transition-all font-medium">
-                            <Image src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" width={18} height={18} />
-                            Continue with Google
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full bg-[#3b5998] text-white py-4 rounded-xl font-bold text-lg hover:bg-[#2d4373] transition-colors flex items-center justify-center space-x-2 disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                        >
+                            <span>{loading ? "Saving Details..." : "Save and Continue"}</span>
+                            {!loading && <ChevronRight size={20} />}
                         </button>
-                    </div>
+                    </form>
                 </div>
             </div>
         </main>

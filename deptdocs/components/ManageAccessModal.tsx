@@ -43,7 +43,6 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
 
         if (!reportError && reportData && reportData.profiles) {
             // Supabase joins can sometimes return arrays or single objects based on the FK setup.
-            // We ensure we are always setting an object.
             setOwner(Array.isArray(reportData.profiles) ? reportData.profiles[0] : reportData.profiles);
         }
 
@@ -116,13 +115,32 @@ export default function ManageAccessModal({ isOpen, onClose, reportId }: ManageA
     };
 
     const handleRemoveAccess = async (collabId: string) => {
-        await supabase.from('collaborators').delete().eq('id', collabId);
-        fetchAccessData(); // Refresh list
+        const { error } = await supabase
+            .from('collaborators')
+            .delete()
+            .eq('id', collabId);
+
+        if (error) {
+            console.error("Failed to remove collaborator:", error);
+            alert("Could not remove access. Please check your database RLS policies.");
+        } else {
+            fetchAccessData(); // Refresh list only on success
+        }
     };
 
     const handleUpdateRole = async (collabId: string, newRole: string) => {
-        await supabase.from('collaborators').update({ role: newRole }).eq('id', collabId);
-        fetchAccessData(); // Refresh list
+        const { error } = await supabase
+            .from('collaborators')
+            .update({ role: newRole })
+            .eq('id', collabId);
+
+        if (error) {
+            console.error("Failed to update role:", error);
+            alert("Could not update role. Please check your database RLS policies.");
+            fetchAccessData(); // Re-fetch to snap the dropdown back to its original state if it fails
+        } else {
+            fetchAccessData(); // Refresh list on success
+        }
     };
 
     const handleCopyLink = () => {

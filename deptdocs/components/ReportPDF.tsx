@@ -90,21 +90,56 @@ const TableRow = ({ label, value, isLast = false }: { label: string, value: any,
     );
 };
 
+// Helper function to format dates nicely (e.g., "12th March 2026")
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return "";
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return dateStr;
+
+        const day = date.getDate();
+        const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 ? 0 : (day % 100 - day % 10 != 10) ? day % 10 : 0)];
+        const month = date.toLocaleString('default', { month: 'long' });
+        const year = date.getFullYear();
+
+        return `${day}${suffix} ${month} ${year}`;
+    } catch {
+        return dateStr;
+    }
+};
+
 export const ReportPDF = ({ data }: { data: any }) => {
     const hasData = (val: any) => val && val.toString().trim() !== "" && val !== "—";
     const hasArrayData = (arr: any[]) => arr && Array.isArray(arr) && arr.length > 0;
 
     // --- 🐛 THE DATE & TIME FIX ---
-    // Safely fallback to data.date if startDate doesn't exist yet
-    const actualStartDate = data.startDate || data.date;
-    const dateDisplay = (actualStartDate && data.endDate && actualStartDate !== data.endDate)
-        ? `${actualStartDate} to ${data.endDate}`
-        : actualStartDate || "—";
+    // Handle Dates
+    const rawStartDate = data.startDate || data.date;
+    const rawEndDate = data.endDate;
 
-    const actualStartTime = data.startTime || data.time;
-    const timeDisplay = (actualStartTime && data.endTime)
-        ? `${actualStartTime} to ${data.endTime}`
-        : actualStartTime || "—";
+    let dateDisplay = "—";
+    if (rawStartDate) {
+        const formattedStart = formatDate(rawStartDate);
+        if (rawEndDate && rawStartDate !== rawEndDate) {
+            const formattedEnd = formatDate(rawEndDate);
+            dateDisplay = `${formattedStart} to ${formattedEnd}`;
+        } else {
+            dateDisplay = formattedStart;
+        }
+    }
+
+    // Handle Times
+    const startTime = data.startTime || data.time;
+    const endTime = data.endTime;
+
+    let timeDisplay = "—";
+    if (startTime) {
+        if (endTime && startTime !== endTime) {
+            timeDisplay = `${startTime} to ${endTime}`;
+        } else {
+            timeDisplay = startTime;
+        }
+    }
     // ------------------------------
 
     const renderAttachmentSection = (files: any[], title: string, textData?: string) => {

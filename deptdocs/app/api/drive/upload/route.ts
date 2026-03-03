@@ -8,14 +8,19 @@ import React from 'react';
 // Import your PDF template
 import { ReportPDF } from '@/components/ReportPDF';
 
-// Use Service Role Key to bypass RLS for server-side operations
-const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: Request) {
     try {
+        // ✅ INITIALIZE SUPABASE INSIDE THE FUNCTION
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+        if (!supabaseUrl || !supabaseServiceKey) {
+            return NextResponse.json({ error: "Missing Supabase credentials on server." }, { status: 500 });
+        }
+
+        // Use Service Role Key to bypass RLS for server-side operations
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
         const { reportId } = await req.json();
 
         if (!reportId) {
@@ -71,6 +76,10 @@ export async function POST(req: Request) {
             },
             fields: 'id, webViewLink',
         });
+
+        if (!driveResponse.data.webViewLink) {
+            throw new Error("Google Drive did not return a webViewLink.");
+        }
 
         // 7. Store the Drive Link instead of changing status to 'published'
         // This avoids the Postgres CHECK constraint error

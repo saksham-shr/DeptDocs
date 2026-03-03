@@ -178,7 +178,7 @@ export default function DashboardPage() {
                             DeptDocs
                         </h2>
                         <p className="text-lg text-gray-500 mb-12 max-w-xl leading-relaxed">
-                            A streamlined, real-time activity report generator built exclusively for the Department of AI, ML & Data Science.
+                            A streamlined, real-time activity report generator built exclusively for the Department of AI & Data Science.
                         </p>
 
                         {/* Action Buttons */}

@@ -42,7 +42,7 @@ export default function SplashScreen() {
 
         {/* Subtitle */}
         <p className="text-sm font-bold text-gray-500 tracking-widest uppercase text-center">
-          Department of AI, ML & Data Science
+          Department of AI & Data Science
         </p>
 
       </div>

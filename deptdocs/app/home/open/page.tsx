@@ -133,7 +133,7 @@ export default function OpenFileDashboard() {
                 {/* Header aligned with /home */}
                 <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-10 shrink-0 relative z-40">
                     <div className="flex flex-col">
-                        <h2 className="text-gray-400 font-bold text-[10px] uppercase tracking-widest">Department of AI, ML & Data Science</h2>
+                        <h2 className="text-gray-400 font-bold text-[10px] uppercase tracking-widest">Department of AI & Data Science</h2>
                         <h1 className="text-2xl font-black text-[#112a53]">Document Library</h1>
                     </div>
 
